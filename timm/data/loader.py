@@ -7,7 +7,6 @@ Hacked together by / Copyright 2019, Ross Wightman
 """
 import random
 from functools import partial
-from itertools import repeat
 from typing import Callable
 
 import torch.utils.data
@@ -55,37 +54,20 @@ def fast_collate(batch):
         assert False
 
 
-def expand_to_chs(x, n):
-    if not isinstance(x, (tuple, list)):
-        x = tuple(repeat(x, n))
-    elif len(x) == 1:
-        x = x * n
-    else:
-        assert len(x) == n, 'normalization stats must match image channels'
-    return x
-
-
 class PrefetchLoader:
 
-    def __init__(
-            self,
-            loader,
-            mean=IMAGENET_DEFAULT_MEAN,
-            std=IMAGENET_DEFAULT_STD,
-            channels=3,
-            fp16=False,
-            re_prob=0.,
-            re_mode='const',
-            re_count=1,
-            re_num_splits=0):
-
-        mean = expand_to_chs(mean, channels)
-        std = expand_to_chs(std, channels)
-        normalization_shape = (1, channels, 1, 1)
-
+    def __init__(self,
+                 loader,
+                 mean=IMAGENET_DEFAULT_MEAN,
+                 std=IMAGENET_DEFAULT_STD,
+                 fp16=False,
+                 re_prob=0.,
+                 re_mode='const',
+                 re_count=1,
+                 re_num_splits=0):
         self.loader = loader
-        self.mean = torch.tensor([x * 255 for x in mean]).cuda().view(normalization_shape)
-        self.std = torch.tensor([x * 255 for x in std]).cuda().view(normalization_shape)
+        self.mean = torch.tensor([x * 255 for x in mean]).cuda().view(1, 3, 1, 1)
+        self.std = torch.tensor([x * 255 for x in std]).cuda().view(1, 3, 1, 1)
         self.fp16 = fp16
         if fp16:
             self.mean = self.mean.half()
@@ -194,35 +176,37 @@ def create_loader(
         use_multi_epochs_loader=False,
         persistent_workers=True,
         worker_seeding='all',
+        sampler=None,
 ):
     re_num_splits = 0
     if re_split:
         # apply RE to second half of batch if no aug split otherwise line up with aug split
         re_num_splits = num_aug_splits or 2
-    dataset.transform = create_transform(
-        input_size,
-        is_training=is_training,
-        use_prefetcher=use_prefetcher,
-        no_aug=no_aug,
-        scale=scale,
-        ratio=ratio,
-        hflip=hflip,
-        vflip=vflip,
-        color_jitter=color_jitter,
-        auto_augment=auto_augment,
-        interpolation=interpolation,
-        mean=mean,
-        std=std,
-        crop_pct=crop_pct,
-        tf_preprocessing=tf_preprocessing,
-        re_prob=re_prob,
-        re_mode=re_mode,
-        re_count=re_count,
-        re_num_splits=re_num_splits,
-        separate=num_aug_splits > 0,
-    )
+    if dataset.transform is None:
+        dataset.transform = create_transform(
+            input_size,
+            is_training=is_training,
+            use_prefetcher=use_prefetcher,
+            no_aug=no_aug,
+            scale=scale,
+            ratio=ratio,
+            hflip=hflip,
+            vflip=vflip,
+            color_jitter=color_jitter,
+            auto_augment=auto_augment,
+            interpolation=interpolation,
+            mean=mean,
+            std=std,
+            crop_pct=crop_pct,
+            tf_preprocessing=tf_preprocessing,
+            re_prob=re_prob,
+            re_mode=re_mode,
+            re_count=re_count,
+            re_num_splits=re_num_splits,
+            separate=num_aug_splits > 0,
+        )
 
-    sampler = None
+    # sampler = None
     if distributed and not isinstance(dataset, torch.utils.data.IterableDataset):
         if is_training:
             if num_aug_repeats:
@@ -265,7 +249,6 @@ def create_loader(
             loader,
             mean=mean,
             std=std,
-            channels=input_size[0],
             fp16=fp16,
             re_prob=prefetch_re_prob,
             re_mode=re_mode,

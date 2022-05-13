@@ -27,6 +27,7 @@ class ImageDataset(data.Dataset):
             load_bytes=False,
             transform=None,
             target_transform=None,
+            transform_library=None
     ):
         if parser is None or isinstance(parser, str):
             parser = create_parser(parser or '', root=root, class_map=class_map)
@@ -35,11 +36,14 @@ class ImageDataset(data.Dataset):
         self.transform = transform
         self.target_transform = target_transform
         self._consecutive_errors = 0
+        self.transform_library = transform_library
 
     def __getitem__(self, index):
         img, target = self.parser[index]
         try:
             img = img.read() if self.load_bytes else Image.open(img).convert('RGB')
+            if self.transform_library is not None and self.transform_library == "albumentations":
+                img = np.array(img)
         except Exception as e:
             _logger.warning(f'Skipped sample (index {index}, file {self.parser.filename(index)}). {str(e)}')
             self._consecutive_errors += 1
@@ -49,7 +53,10 @@ class ImageDataset(data.Dataset):
                 raise e
         self._consecutive_errors = 0
         if self.transform is not None:
-            img = self.transform(img)
+            if self.transform_library is not None and self.transform_library == "albumentations":
+                img = self.transform(image=img)["image"]
+            else:
+                img = self.transform(img)
         if target is None:
             target = -1
         elif self.target_transform is not None:
